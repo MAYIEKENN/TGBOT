@@ -11,19 +11,14 @@ TEST_URL = "https://apis.mytel.com.mm/network-test/v3/submit"
 # Operators List
 OPERATORS = ["MYTEL", "MPT", "OOREDOO", "ATOM"]
 
-# Backup file
-BACKUP_FILE = "/storage/emulated/0/MySrc/mytel/backup.json"
-
 async def fetch_json_data(session):
-    """Fetch JSON data from the API and save to backup.json."""
+    """Fetch JSON data from the API."""
     print("Fetching JSON data from API...")
     try:
         async with session.get(API_URL) as response:
             if response.status == 200:
                 data = await response.json()
-                with open(BACKUP_FILE, "w", encoding="utf-8") as f:
-                    json.dump(data, f, indent=4)
-                print("JSON data fetched and saved to backup.json.")
+                print("JSON data fetched successfully.")
                 return data
             else:
                 print(f"Failed to fetch JSON data. HTTP Code: {response.status}")
@@ -86,8 +81,6 @@ async def main():
             print("No data to process. Exiting...")
             return
 
-    input("\nPress Enter to start processing requests...\n")
-
     async with aiohttp.ClientSession() as session:
         # Tasks for daily claim requests
         claim_tasks = [send_claim_request(session, item["access"], item["phone"]) for item in json_data]
@@ -110,3 +103,4 @@ if __name__ == "__main__":
         asyncio.run(main())
 
     print("Script execution completed.")
+
