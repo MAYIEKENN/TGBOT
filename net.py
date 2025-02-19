@@ -1,145 +1,111 @@
-import requests
+import aiohttp
+import asyncio
 import json
 import time
-import random
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
-import logging
 
-# Configure logging
-logging.basicConfig(
-    format='[%(asctime)s] [%(levelname)s] %(message)s',
-    level=logging.INFO,
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-logger = logging.getLogger(__name__)
+# URLs
+API_URL = "https://amt.x10.mx/index.php?endpoint=admin_view"  # Replace with your actual JSON API URL
+CLAIM_URL = "https://apis.mytel.com.mm/daily-quest-v3/api/v3/daily-quest/daily-claim"
+TEST_URL = "https://apis.mytel.com.mm/network-test/v3/submit"
 
-def make_request(method, url, headers=None, data=None, retries=3):
-    """Send HTTP request with retries and logging"""
-    for attempt in range(retries):
-        try:
-            response = requests.request(
-                method, url, headers=headers, json=data, timeout=(3.05, 27)
-            )
-            status_code = response.status_code
+# Operators List
+OPERATORS = ["MYTEL", "MPT", "OOREDOO", "ATOM"]
 
-            if 200 <= status_code < 300:
-                logger.info(f"✅ [{method}] {url} -> {status_code}")
-                try:
-                    return response.json()
-                except json.JSONDecodeError:
-                    logger.warning(f"⚠️ [{method}] Invalid JSON response from {url}")
-                    return response.text  # Return raw text if JSON parsing fails
+# Backup file
+BACKUP_FILE = "backup.json"
 
-            elif status_code >= 500:
-                logger.warning(f"⚠️ [{method}] Server error {status_code} for {url}")
-            
+async def fetch_json_data(session):
+    """Fetch JSON data from the API and save to backup.json."""
+    print("Fetching JSON data from API...")
+    try:
+        async with session.get(API_URL) as response:
+            if response.status == 200:
+                data = await response.json()
+                with open(BACKUP_FILE, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=4)
+                print("JSON data fetched and saved to backup.json.")
+                return data
             else:
-                logger.warning(f"❌ [{method}] Request failed {status_code} for {url}")
+                print(f"Failed to fetch JSON data. HTTP Code: {response.status}")
+                return None
+    except Exception as e:
+        print(f"Error fetching JSON data: {str(e)}")
+        return None
 
-        except requests.RequestException as e:
-            logger.error(f"🚨 [{method}] Error: {e}")
-
-        if attempt < retries - 1:
-            sleep_time = 2 ** attempt + random.uniform(0, 1)
-            logger.info(f"🔄 Retrying in {sleep_time:.2f}s...")
-            time.sleep(sleep_time)
-
-    logger.error(f"⛔ Max retries exceeded for {url}")
-    return None
-
-def process_user(user):
-    """Process a user's claim actions with structured logging"""
-    required_fields = {'username', 'phone', 'userid', 'access'}
-    if not required_fields.issubset(user.keys()):
-        logger.error(f"🚫 Invalid user data: {user}")
-        return
-
-    username = user['username']
-    phone = user['phone']
-    userid = user['userid']
-    access = user['access']
-
-    logger.info(f"\n📌 Processing User: {username} ({phone})")
-
-    base_headers = {
-        "Authorization": f"Bearer {access}",
-        "User-Agent": "MyTM/4.11.0/Android/30",
-        "X-Server-Select": "production",
-        "Device-Name": "Xiaomi Redmi Note 8 Pro",
-        "Host": "store.atom.com.mm"
+async def send_claim_request(session, access_token, msisdn):
+    """Send a request to claim daily rewards."""
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
     }
+    payload = {"msisdn": msisdn.replace("%2B959", "+959")}
 
-    # Step 1: Dashboard request
-    dashboard_url = (
-        f"https://store.atom.com.mm/my/dashboard?isFirstTime=1&isFirstInstall=0"
-        f"&msisdn={phone}&userid={userid}&v=4.11.0"
-    )
-    make_request('GET', dashboard_url, headers=base_headers)
+    try:
+        async with session.post(CLAIM_URL, json=payload, headers=headers) as response:
+            response_text = await response.text()
+            status = "Success" if response.status == 200 else "Failed"
+            print(f"[Daily Claim] {msisdn}: {status} - Response: {response_text}")
+    except Exception as e:
+        print(f"[Daily Claim] Error for {msisdn}: {str(e)}")
 
-    # Step 2: Fetch claim list
-    claim_url = (
-        f"https://store.atom.com.mm/mytmapi/v1/my/point-system/claim-list"
-        f"?msisdn={phone}&userid={userid}&v=4.11.0"
-    )
-    claim_data = make_request('GET', claim_url, headers=base_headers)
-    
-    if not isinstance(claim_data, dict) or 'data' not in claim_data or 'attribute' not in claim_data['data']:
-        logger.error(f"⚠️ No valid claims for {username}")
-        return
+async def send_network_test_request(session, number, api_key, operator):
+    """Send a network test request for each operator."""
+    payload = {
+        "cellId": "51273751",
+        "deviceModel": "Redmi Note 8 Pro",
+        "downloadSpeed": 0.8,
+        "enb": "200288",
+        "latency": 734.875,
+        "latitude": "21.4631248",
+        "location": "Mandalay Region, Myanmar (Burma)",
+        "longitude": "95.3621706",
+        "msisdn": number.replace("%2B959", "+959"),
+        "networkType": "_4G",
+        "operator": operator,
+        "requestId": number,
+        "requestTime": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "rsrp": "-98",
+        "township": "Mandalay Region",
+        "uploadSpeed": 10.0
+    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
-    claims = [c for c in claim_data['data']['attribute'] if c.get('enable') is True]
-    
-    logger.info(f"🔎 {len(claims)} claim(s) found for {username}")
+    try:
+        async with session.post(TEST_URL, json=payload, headers=headers) as response:
+            response_text = await response.text()
+            status = "Success" if response.status == 200 else "Failed"
+            print(f"[Network Test] {number} - {operator}: {status} - Response: {response_text}")
+    except Exception as e:
+        print(f"[Network Test] Error for {number} - {operator}: {str(e)}")
 
-    # Step 3: Process claims
-    for claim in claims:
-        if 'id' not in claim or 'campaign_name' not in claim:
-            logger.warning(f"⚠️ Skipping invalid claim: {claim}")
-            continue
-            
-        claim_id = claim['id']
-        campaign_name = claim['campaign_name']
-        logger.info(f"💰 Claiming '{campaign_name}' (ID: {claim_id})")
+async def main():
+    """Main function to handle API requests asynchronously."""
+    async with aiohttp.ClientSession() as session:
+        json_data = await fetch_json_data(session)
+        if not json_data:
+            print("No data to process. Exiting...")
+            return
 
-        post_url = (
-            f"https://store.atom.com.mm/mytmapi/v1/my/point-system/claim"
-            f"?msisdn={phone}&userid={userid}&v=4.11.0"
-        )
-        response = make_request('POST', post_url, headers=base_headers, data={'id': claim_id})
 
-        if response and isinstance(response, dict):
-            message = response.get('data', {}).get('attribute', {}).get('message', 'Unknown')
-            logger.info(f"✅ {campaign_name}: {message}")
-        else:
-            logger.warning(f"❌ Claim failed for '{campaign_name}'")
+    async with aiohttp.ClientSession() as session:
+        # Tasks for daily claim requests
+        claim_tasks = [send_claim_request(session, item["access"], item["phone"]) for item in json_data]
 
-    # Step 4: Refresh user data
-    refresh_url = f"https://api.xalyon.xyz/v2/refresh/?phone={phone}"
-    make_request('GET', refresh_url)
+        # Tasks for network test requests
+        network_tasks = [
+            send_network_test_request(session, item["phone"], item["access"], operator)
+            for item in json_data for operator in OPERATORS
+        ]
 
-    logger.info(f"🔄 Refresh completed for {username}")
-
-    # Small delay to prevent CPU overload
-    time.sleep(0.5)
-
-def main():
-    """Main execution with controlled concurrency"""
-    user_data_url = "https://api.xalyon.xyz/v2/atom/index.php?endpoint=admin_view"
-    
-    users = make_request('GET', user_data_url)
-    if not isinstance(users, list):
-        logger.error("⛔ Failed to retrieve users")
-        return
-
-    max_workers = min(4, len(users))  # Limit concurrency to 4
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        executor.map(process_user, users)
+        # Run all tasks asynchronously
+        await asyncio.gather(*claim_tasks, *network_tasks)
+        print("\nAll requests completed.")
 
 if __name__ == "__main__":
     try:
-        main()
-    except KeyboardInterrupt:
-        logger.info("⛔ Process interrupted by user")
-    except Exception as e:
-        logger.error(f"🚨 Critical error: {e}")
+        loop = asyncio.get_running_loop()
+        loop.run_until_complete(main())
+    except RuntimeError:
+        asyncio.run(main())
+
+    print("Script execution completed.")
