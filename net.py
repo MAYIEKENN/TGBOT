@@ -125,7 +125,7 @@ def process_user(user):
 
 def main():
     """Main execution with controlled concurrency"""
-    user_data_url = "https://api.xalyon.xyz/v1/atom/index.php?endpoint=admin_view"
+    user_data_url = "https://api.xalyon.xyz/v2/atom/index.php?endpoint=admin_view"
     
     users = make_request('GET', user_data_url)
     if not isinstance(users, list):
