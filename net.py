@@ -11,7 +11,7 @@ TEST_URL = "https://apis.mytel.com.mm/network-test/v3/submit"
 # Configuration
 OPERATORS = ["MYTEL", "MPT", "OOREDOO", "ATOM"]
 DATABASES = [1, 2, 3, 4]  # Add more database numbers as needed
-BACKUP_FILE = "/storage/emulated/0/MySrc/mytel/backup.json"
+BACKUP_FILE = "backup.json"
 
 async def fetch_json_data(session, db_number):
     """Fetch JSON data from the API for a specific database number."""
