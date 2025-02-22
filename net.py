@@ -87,7 +87,7 @@ async def process_database(db_number):
             return
 
         # Wait for user confirmation
-        input(f"\nPress Enter to process database {db_number}...\n")
+       
 
     # Process requests
     async with aiohttp.ClientSession() as session:
