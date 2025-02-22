@@ -4,36 +4,36 @@ import json
 import time
 
 # URLs
-API_URL = "https://amt.x10.mx/index.php?endpoint=admin_view"  # Replace with your actual JSON API URL
+BASE_API_URL = "https://amt.x10.mx/get/?r={db_number}"  # URL template with placeholder
 CLAIM_URL = "https://apis.mytel.com.mm/daily-quest-v3/api/v3/daily-quest/daily-claim"
 TEST_URL = "https://apis.mytel.com.mm/network-test/v3/submit"
 
-# Operators List
+# Configuration
 OPERATORS = ["MYTEL", "MPT", "OOREDOO", "ATOM"]
+DATABASES = [1, 2, 3, 4]  # Add more database numbers as needed
+BACKUP_FILE = "/storage/emulated/0/MySrc/mytel/backup.json"
 
-# Backup file
-BACKUP_FILE = "backup.json"
-
-async def fetch_json_data(session):
-    """Fetch JSON data from the API and save to backup.json."""
-    print("Fetching JSON data from API...")
+async def fetch_json_data(session, db_number):
+    """Fetch JSON data from the API for a specific database number."""
+    api_url = BASE_API_URL.format(db_number=db_number)
+    print(f"Fetching data from database {db_number}...")
+    
     try:
-        async with session.get(API_URL) as response:
+        async with session.get(api_url) as response:
             if response.status == 200:
                 data = await response.json()
                 with open(BACKUP_FILE, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=4)
-                print("JSON data fetched and saved to backup.json.")
+                print(f"Data from database {db_number} fetched successfully")
                 return data
-            else:
-                print(f"Failed to fetch JSON data. HTTP Code: {response.status}")
-                return None
+            print(f"Failed to fetch database {db_number}. Status: {response.status}")
+            return None
     except Exception as e:
-        print(f"Error fetching JSON data: {str(e)}")
+        print(f"Error fetching database {db_number}: {str(e)}")
         return None
 
 async def send_claim_request(session, access_token, msisdn):
-    """Send a request to claim daily rewards."""
+    """Send a daily claim request."""
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
@@ -44,12 +44,12 @@ async def send_claim_request(session, access_token, msisdn):
         async with session.post(CLAIM_URL, json=payload, headers=headers) as response:
             response_text = await response.text()
             status = "Success" if response.status == 200 else "Failed"
-            print(f"[Daily Claim] {msisdn}: {status} - Response: {response_text}")
+            print(f"[Claim] {msisdn}: {status} - {response_text}")
     except Exception as e:
-        print(f"[Daily Claim] Error for {msisdn}: {str(e)}")
+        print(f"[Claim] Error for {msisdn}: {str(e)}")
 
 async def send_network_test_request(session, number, api_key, operator):
-    """Send a network test request for each operator."""
+    """Send network test request for an operator."""
     payload = {
         "cellId": "51273751",
         "deviceModel": "Redmi Note 8 Pro",
@@ -74,38 +74,45 @@ async def send_network_test_request(session, number, api_key, operator):
         async with session.post(TEST_URL, json=payload, headers=headers) as response:
             response_text = await response.text()
             status = "Success" if response.status == 200 else "Failed"
-            print(f"[Network Test] {number} - {operator}: {status} - Response: {response_text}")
+            print(f"[Test] {number} - {operator}: {status} - {response_text}")
     except Exception as e:
-        print(f"[Network Test] Error for {number} - {operator}: {str(e)}")
+        print(f"[Test] Error for {number} - {operator}: {str(e)}")
 
-async def main():
-    """Main function to handle API requests asynchronously."""
+async def process_database(db_number):
+    """Process all requests for a single database."""
     async with aiohttp.ClientSession() as session:
-        json_data = await fetch_json_data(session)
-        if not json_data:
-            print("No data to process. Exiting...")
+        # Fetch data for current database
+        data = await fetch_json_data(session, db_number)
+        if not data:
             return
 
+        # Wait for user confirmation
+        input(f"\nPress Enter to process database {db_number}...\n")
 
+    # Process requests
     async with aiohttp.ClientSession() as session:
-        # Tasks for daily claim requests
-        claim_tasks = [send_claim_request(session, item["access"], item["phone"]) for item in json_data]
-
-        # Tasks for network test requests
+        # Create tasks
+        claim_tasks = [
+            send_claim_request(session, item["access"], item["phone"])
+            for item in data
+        ]
+        
         network_tasks = [
             send_network_test_request(session, item["phone"], item["access"], operator)
-            for item in json_data for operator in OPERATORS
+            for item in data
+            for operator in OPERATORS
         ]
 
-        # Run all tasks asynchronously
+        # Execute all tasks
         await asyncio.gather(*claim_tasks, *network_tasks)
-        print("\nAll requests completed.")
+        print(f"\nDatabase {db_number} processing completed\n")
+
+async def main():
+    """Main function to process all databases sequentially."""
+    for db_number in DATABASES:
+        await process_database(db_number)
 
 if __name__ == "__main__":
-    try:
-        loop = asyncio.get_running_loop()
-        loop.run_until_complete(main())
-    except RuntimeError:
-        asyncio.run(main())
-
-    print("Script execution completed.")
+    print("Starting script execution...")
+    asyncio.run(main())
+    print("All databases processed successfully")
